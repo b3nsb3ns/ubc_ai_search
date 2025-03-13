@@ -9,7 +9,7 @@ from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 from tavily import TavilyClient
 import os
-from src.agent.prompts import *
+from agent.prompts import *
 
 class AgentState(TypedDict):
     task: str
