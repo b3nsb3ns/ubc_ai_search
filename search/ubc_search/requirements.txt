@@ -1,0 +1,16 @@
+langgraph>=0.2.6
+python-dotenv>=1.0.1
+langchain_openai
+tavily-python
+
+
+# Optional Dev Dependencies
+mypy>=1.11.1
+ruff>=0.6.1
+
+# Build System
+setuptools>=73.0.0
+wheel
+
+# Langgraph studios 
+langgraph-cli[inmem]

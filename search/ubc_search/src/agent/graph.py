@@ -12,7 +12,7 @@ from src.agent.configuration import Configuration
 from src.agent.state import State
 
 from langgraph.checkpoint.memory import MemorySaver
-from src.agent.nodes import *
+from agent.nodes import *
 
 memory = MemorySaver()
 
