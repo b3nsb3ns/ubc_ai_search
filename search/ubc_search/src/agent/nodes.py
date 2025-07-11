@@ -11,98 +11,164 @@ from tavily import TavilyClient
 import os
 from agent.prompts import *
 
+# class AgentState(TypedDict):
+#     task: str
+#     content: List[str]
+#     search_result: SearchResult
+#     revision_number: int
+#     max_revisions: int
+#     key_words: List[str]
+
 class AgentState(TypedDict):
     task: str
+    locations: List[str]
+    industries: List[str]
+    queries: List[str]
     content: List[str]
-    revision_number: int
-    max_revisions: int
-    key_words: List[str]
+    companies: List[str]
 
 model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
 class Queries(BaseModel):
-    queries: List[str]
+    list_queries: List[str]
 
-class KeyWords(BaseModel):
-    list_of_key_words: List[str]
+class Locations(BaseModel):
+    list_locations: List[str]
+
+class Industries(BaseModel):
+    list_industries: List[str]
+
+class Companies(BaseModel):
+    list_companies: List[str]
 
 tavily = TavilyClient(api_key=os.environ["TAVILY_API_KEY"])
 
-def key_words_node(state: AgentState):
-    new_key_words = model.with_structured_output(KeyWords).invoke([
-        SystemMessage(content=KEY_WORDS_PROMPT),
-        HumanMessage(content=state['task'])
+def init_state(state: AgentState):
+    return {
+        **state, 
+        "task": state.get("task", ""),
+        "content": [],
+        "locations": [],
+        "industries": [],
+        "queries": [],
+        "companies": []
+    }
+
+def location_node(state: AgentState):
+    task = state.get('task', '')
+    if not isinstance(task, str):
+        task = str(task)  # Convert to string as a fallback
+
+    new_locations = model.with_structured_output(Locations).invoke([
+        SystemMessage(content=LOCATION_PROMPT.format(event_description=task)),
+        HumanMessage(content=task)
     ])
-    # key_words = state["key_words"] or []
-    key_words = state.get("key_words", [])
 
-    # for r in new_key_words["results"]:
-    #     key_words.append(r)
-    key_words.extend(new_key_words.list_of_key_words)
+    locations = state.get("locations", [])
+    if not isinstance(locations, list):
+        locations = [locations]
 
-    return {**state, "key_words": key_words}
+    list_locations = getattr(new_locations, 'list_locations', [])
+    if isinstance(list_locations, list):
+        locations.extend(list_locations)
+    elif isinstance(list_locations, str):
+        locations.append(list_locations)
 
-def importance_node(state: AgentState):
-    description = f"This is the event description: \n {state['task']} \n\n"
-    key_words_for_llm = f"These are the key words: {state['key_words']}"
-    ranked_key_words = model.with_structured_output(KeyWords).invoke([
-        SystemMessage(content=IMPORTANCE_PROMPT),
-        HumanMessage(content=description + key_words_for_llm)
+    return {**state, "locations": locations}
+
+def industry_node(state: AgentState):
+    task = state.get('task', '')
+    if not isinstance(task, str):
+        task = str(task)  # Convert to string as a fallback
+
+    new_industries = model.with_structured_output(Industries).invoke([
+        SystemMessage(content=INDUSTRY_PROMPT.format(event_description=task)),
+        HumanMessage(content=task)
     ])
-    return {**state, "key_words": ranked_key_words}
 
-def enrichment_node(state: AgentState): # note: this node should be named 'enrichment'
-    description = f"This is the event description: \n {state['task']} \n\n"
-    key_words_for_llm = f"These are the key words: {state['key_words']}"
-    enriched_key_words = model.with_structured_output(KeyWords).invoke([
-        SystemMessage(content=ENRICHMENT_PROMPT),
-        HumanMessage(content=description + key_words_for_llm)
-    ])
-    # key_words = state["key_words"] or []
-    key_words = state.get("key_words", [])
-    # for r in enriched_key_words.list_of_key_words:
-    #     key_words.append(r)
+    industries = state.get("industries", [])
+    if not isinstance(industries, list):
+        industries = [industries]
 
-    # Extract the actual keyword list
-    enriched_list = enriched_key_words.list_of_key_words
+    list_industries = getattr(new_industries, 'list_industries', [])
+    if isinstance(list_industries, list):
+        industries.extend(list_industries)
+    elif isinstance(list_industries, str):
+        industries.append(list_industries)
 
-    # Ensure state["key_words"] is a list
-    if isinstance(state["key_words"], KeyWords):
-        key_words = state["key_words"].list_of_key_words
-    else:
-        key_words = state["key_words"] or []
-
-    # Combine both lists
-    key_words.extend(enriched_list)
-
-    # Increment revision_number
-    revision_number = state.get("revision_number") + 1
-
-    return {**state, "key_words": key_words, "revision_number": revision_number}
+    return {**state, "industries": industries}
 
 def query_node(state: AgentState):
-    num_queries = 3
-    
-    keywords = state['key_words']
-    if hasattr(keywords, "list_of_key_words"):
-        keywords = ", ".join(keywords.list_of_key_words)
+    num_queries = 10
 
-    queries = model.with_structured_output(Queries).invoke([
-        SystemMessage(content=QUERY_PROMPT),
-        HumanMessage(content=keywords)
+    task = state.get('task', '')
+    if not isinstance(task, str):
+        task = str(task)  # Convert to string as a fallback
+
+    locations = state["locations"]
+    industries = state["industries"]
+
+    new_queries = model.with_structured_output(Queries).invoke([
+        SystemMessage(content=QUERY_PROMPT.format(
+            num_queries=num_queries, locations=locations, industries=industries))
     ])
+
+    queries = state.get("queries", [])
+    if not isinstance(queries, list):
+        queries = [queries]
+
+    list_queries = getattr(new_queries, 'list_queries', [])
+    if isinstance(list_queries, list):
+        queries.extend(list_queries)
+    elif isinstance(list_queries, str):
+        queries.append(list_queries)
     
+    return {**state, "queries": queries}
+
+def tavily_node(state: AgentState):
+
+    task = state.get('task', '')
+    if not isinstance(task, str):
+        task = str(task)  # Convert to string as a fallback
+
     # content = state['content'] or []
     content = state.get('content', [])
-    for q in queries.queries:
+    if not isinstance(content, list):
+        content = [content]  # Convert non-list content to a list
+
+    queries = state.get("queries", [])
+    if not isinstance(queries, list):
+        queries = [queries]
+
+    for q in queries:
         response = tavily.search(query=q, max_results=2)
-        # for r in response['results']:
-        #     content.append(r['content'])
-        for r in response.get("results", []):
-            content.append(r.get("content", ""))
+        for r in response['results']:
+            content.append(r['content'])
+
     return {**state, "content": content}
 
-def should_continue_key_words(state):
-    if state["revision_number"] >= state["max_revisions"]:
-        return "query"
-    return "enrichment"
+def extraction_node(state: AgentState):
+
+    task = state.get('task', '')
+    if not isinstance(task, str):
+        task = str(task)  # Convert to string as a fallback
+
+    content = state.get('content', [])
+    if not isinstance(content, list):
+        content = [content]
+
+    new_companies = model.with_structured_output(Companies).invoke([
+        SystemMessage(content=EXTRACT_PROMPT.format(companies=content))
+    ])
+
+    companies = state.get("companies", [])
+    if not isinstance(companies, list):
+        companies = [companies]
+
+    list_companies = getattr(new_companies, 'list_companies', [])
+    if isinstance(list_companies, list):
+        companies.extend(list_companies)
+    elif isinstance(list_companies, str):
+        companies.append(list_companies)
+    
+    return {**state, "companies": companies}
